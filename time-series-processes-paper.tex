@@ -1,0 +1,281 @@
+\documentclass[10pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{caption}
+
+\definecolor{linkblue}{HTML}{1D4ED8}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=linkblue,
+  citecolor=linkblue,
+  urlcolor=linkblue,
+  pdftitle={Simulating AR(1) and MA(1) Processes in R},
+  pdfauthor={Kalle Saarelma}
+}
+
+\title{\textbf{Simulating AR(1) and MA(1) Processes in R}\\
+\large A Reproducible Introduction to Linear Time-Series Dependence}
+\author{Kalle Saarelma}
+\date{July 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{center}
+\fcolorbox{black}{gray!8}{%
+  \parbox{0.92\linewidth}{%
+    \centering
+    \textbf{AI-Generation Disclaimer}\\[0.35em]
+    This article, including its prose, structure, analysis, and typesetting,
+    was fully generated using artificial intelligence tools. It was created
+    solely as an experiment to test the capabilities of AI-assisted research,
+    coding, and document-production workflows. It should not be presented as
+    independently authored or peer-reviewed academic research.
+  }%
+}
+\end{center}
+\vspace{0.6em}
+
+\begin{abstract}
+Autoregressive and moving-average processes provide the elementary building
+blocks of linear time-series analysis. This article develops a compact,
+reproducible implementation of first-order autoregressive, AR(1), and
+first-order moving-average, MA(1), processes in base R. The implementation
+separates simulation, visualization, and validation into reusable components
+and records all parameter values and random seeds. Simulated trajectories and
+sample autocorrelation functions illustrate the central theoretical
+distinction between the models: the AR(1) autocorrelation decays geometrically,
+whereas the MA(1) autocorrelation cuts off after lag one. The project
+demonstrates how a small amount of well-structured code can connect formal
+time-series theory with transparent computational experiments.
+\end{abstract}
+
+\noindent\textbf{Keywords:} autoregression, moving average, autocorrelation,
+stationarity, reproducible research, R
+
+\section{Introduction}
+
+Time-series observations are ordered, and their temporal order is often
+informative. Economic indicators, sensor measurements, financial returns, and
+environmental records may all exhibit dependence between present and past
+values. Linear stochastic processes offer an interpretable framework for
+representing such dependence. In particular, autoregressive and moving-average
+models form the basis of the ARMA and ARIMA families used throughout applied
+forecasting and econometrics \cite{box2015,brockwell2016}.
+
+This article studies the simplest nontrivial members of these families: the
+AR(1) and MA(1) models. Although elementary, they display qualitatively
+different dependence structures. An AR(1) process propagates earlier values
+forward through a recursive equation. An MA(1) process, by contrast, depends
+only on the current and immediately preceding shocks. Simulation makes this
+contrast visible and provides a useful check on analytical results.
+
+The accompanying R project has three aims. First, it implements both models
+without external package dependencies. Second, it produces repeatable figures
+and data by fixing random seeds. Third, it includes lightweight checks that
+verify output dimensions and deterministic reproduction. The complete source
+is available at
+\url{https://github.com/kjsaarel/time-series-processes}.
+
+\section{Model definitions and properties}
+
+\subsection{The AR(1) process}
+
+Let $\{\varepsilon_t\}$ be independent and identically distributed innovations
+with mean zero and variance $\sigma_\varepsilon^2$. An AR(1) process satisfies
+\begin{equation}
+  y_t = \phi y_{t-1} + \varepsilon_t,
+  \label{eq:ar1}
+\end{equation}
+where $\phi$ controls persistence. If $|\phi|<1$, the process has a
+covariance-stationary solution with
+\begin{equation}
+  \operatorname{Var}(y_t)
+  = \frac{\sigma_\varepsilon^2}{1-\phi^2}.
+\end{equation}
+Its theoretical autocorrelation function (ACF) is
+\begin{equation}
+  \rho(k)=\phi^k,\qquad k=0,1,2,\ldots.
+  \label{eq:aracf}
+\end{equation}
+Positive values of $\phi$ produce persistence with a monotone geometric decay.
+Negative values produce an alternating ACF. When $\phi=1$, Equation
+\eqref{eq:ar1} becomes a random walk and is no longer covariance stationary.
+
+\subsection{The MA(1) process}
+
+An MA(1) process is defined by
+\begin{equation}
+  y_t = \varepsilon_t + \theta\varepsilon_{t-1},
+  \label{eq:ma1}
+\end{equation}
+where $\theta$ determines the contribution of the previous innovation. The
+variance and ACF are
+\begin{align}
+  \operatorname{Var}(y_t)
+    &= (1+\theta^2)\sigma_\varepsilon^2,\\
+  \rho(1)
+    &= \frac{\theta}{1+\theta^2},\\
+  \rho(k)
+    &= 0,\qquad k\geq 2.
+  \label{eq:maacf}
+\end{align}
+Thus, the MA(1) process is stationary for every finite $\theta$. The commonly
+imposed condition $|\theta|<1$ concerns invertibility: it ensures a unique,
+convergent autoregressive representation of the model \cite{hamilton1994}.
+
+\section{Computational design}
+
+The project separates the computational workflow into three layers. The file
+\path{R/simulate_processes.R} contains functions for simulation and plotting.
+The script \path{scripts/run_demo.R} fixes the experimental parameters,
+generates both series, and writes figures and comma-separated data files.
+Finally, \path{tests/test_simulations.R} checks vector lengths, initial
+conditions, and reproducibility under fixed seeds.
+
+Table \ref{tab:parameters} summarizes the baseline experiments. Innovations are
+drawn from a standard normal distribution, so
+$\sigma_\varepsilon^2=1$.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Simulation parameters.}
+  \label{tab:parameters}
+  \begin{tabular}{lcccc}
+    \toprule
+    Model & Observations & Parameter & Seed & Initial value \\
+    \midrule
+    AR(1) & 150 & $\phi=0.9$ & 12 & $y_1=0$ \\
+    MA(1) & 100 & $\theta=0.5$ & 123 & Not applicable \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The AR(1) implementation uses an explicit recursion. This choice mirrors the
+mathematical definition and makes the role of the initial condition
+transparent. The MA(1) implementation draws $n+1$ innovations, including the
+pre-sample shock $\varepsilon_0$, and then evaluates Equation
+\eqref{eq:ma1} vectorially. Both simulation functions return the realized
+series, innovations, and model parameter in a structured list.
+
+Reproducibility requires more than setting a seed in an interactive session.
+The parameters, seeds, output locations, and execution commands must also be
+recorded. The complete experiment can be regenerated from the repository root
+with
+\begin{verbatim}
+Rscript scripts/run_demo.R
+Rscript tests/test_simulations.R
+\end{verbatim}
+No contributed R packages are required.
+
+\section{Simulation results}
+
+Figure \ref{fig:ar1} shows the AR(1) realization and its sample ACF. With
+$\phi=0.9$, shocks have long-lived effects. The simulated trajectory therefore
+exhibits extended excursions above and below zero rather than rapidly
+oscillating around the mean. The sample ACF remains strongly positive at the
+first several lags and declines gradually, in agreement with the geometric
+pattern predicted by Equation \eqref{eq:aracf}. Sampling variation prevents the
+empirical correlations from lying exactly on the theoretical sequence.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.80\textwidth]
+    {output/ar1_simulation.png}
+  \caption{A simulated AR(1) process with $\phi=0.9$ (left) and its sample
+  autocorrelation function (right).}
+  \label{fig:ar1}
+\end{figure}
+
+Figure \ref{fig:ma1} displays the MA(1) experiment. Compared with the persistent
+AR(1) trajectory, the MA(1) series reverses direction more rapidly because an
+innovation affects only two adjacent observations. For $\theta=0.5$, the
+theoretical first-lag correlation is
+\[
+  \rho(1)=\frac{0.5}{1+0.5^2}=0.4.
+\]
+The sample ACF shows a positive first-lag association and correlations near
+zero thereafter. This abrupt cutoff is the diagnostic theoretical signature
+of an MA(1) process.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.80\textwidth]
+    {output/ma1_simulation.png}
+  \caption{A simulated MA(1) process with $\theta=0.5$ (left) and its sample
+  autocorrelation function (right).}
+  \label{fig:ma1}
+\end{figure}
+
+\section{Discussion}
+
+The experiment illustrates how model structure determines serial dependence.
+In an AR(1) model, a shock influences $y_t$ directly, $y_{t+1}$ through
+$\phi$, $y_{t+2}$ through $\phi^2$, and so forth. The effect diminishes but does
+not terminate after a fixed lag. In an MA(1) model, the same shock enters only
+two consecutive observations. Consequently, the population ACF cuts off
+exactly after lag one.
+
+These observations also motivate a classical identification heuristic. An
+autoregressive model tends to have a gradually decaying ACF and a partial
+autocorrelation function that cuts off. A moving-average model tends to display
+the reverse pattern \cite{shumway2017}. In finite samples, however, the
+distinction is imperfect. Sample autocorrelations are noisy, and a highly
+persistent AR process can resemble a nonstationary series. Model selection
+should therefore combine graphical diagnostics with estimation, information
+criteria, residual analysis, and substantive knowledge.
+
+The present exercise is deliberately limited. It assumes Gaussian,
+homoskedastic innovations; it does not estimate parameters from observed data;
+and it considers only one realization per parameter setting. A natural
+extension would compare empirical and theoretical ACFs across repeated
+simulations. Further extensions could examine negative parameters,
+near-unit-root behavior, forecast uncertainty, or mixed ARMA processes.
+
+\section{Conclusion}
+
+AR(1) and MA(1) processes encode two fundamentally different mechanisms of
+time dependence. Autoregression transmits past values recursively and produces
+geometrically decaying autocorrelation. Moving-average dependence transmits
+recent innovations over a finite horizon and produces an ACF cutoff. The
+reproducible R project developed here makes these properties visible while
+maintaining a clear separation among simulation, output generation, and
+validation. This combination of mathematical derivation and transparent code
+provides a practical foundation for more advanced time-series modeling.
+
+\small
+\begin{thebibliography}{9}
+\setlength{\itemsep}{0.25em}
+
+\bibitem{box2015}
+G. E. P. Box, G. M. Jenkins, G. C. Reinsel, and G. M. Ljung,
+\textit{Time Series Analysis: Forecasting and Control}, 5th ed.
+Hoboken, NJ: Wiley, 2015.
+
+\bibitem{brockwell2016}
+P. J. Brockwell and R. A. Davis,
+\textit{Introduction to Time Series and Forecasting}, 3rd ed.
+Cham: Springer, 2016.
+
+\bibitem{hamilton1994}
+J. D. Hamilton,
+\textit{Time Series Analysis}.
+Princeton, NJ: Princeton University Press, 1994.
+
+\bibitem{shumway2017}
+R. H. Shumway and D. S. Stoffer,
+\textit{Time Series Analysis and Its Applications: With R Examples},
+4th ed. Cham: Springer, 2017.
+
+\end{thebibliography}
+
+\end{document}
